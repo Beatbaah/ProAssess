@@ -1,0 +1,6 @@
+{
+  "name": "ProAssess",
+  "description": "A professional recruitment assessment platform featuring full onboarding, timed cognitive testing in Numerical, Verbal, Logical, and Spatial categories, secure user authentication, and automatic score calculation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

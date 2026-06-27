@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Profiles can be read/written by any authenticated user
+    match /users/{userId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Drafts (temporary save state) can be read/written by any authenticated user
+    match /drafts/{userId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Assessment results can be read/written by any authenticated user
+    match /results/{resultId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Static Assessments / Questions Bank
+    match /assessments/{assessmentId} {
+      allow read, write: if true;
+    }
+
+    // Invitations — public read by token (unauthenticated candidates need to resolve the link)
+    match /invitations/{token} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Job Positions — recruiter-managed
+    match /positions/{posId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
