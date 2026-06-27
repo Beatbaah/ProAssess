@@ -1,12 +1,56 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useAssessment } from '../context/AssessmentContext';
-import { Clock, HelpCircle, AlertTriangle } from 'lucide-react';
+import { Clock, HelpCircle, AlertTriangle, Maximize2, EyeOff } from 'lucide-react';
 
 export const AssessmentInterface: React.FC = () => {
-  const { questions, answers, activeCategory, currentQuestionIndex, timeLeft, selectAnswer, nextQuestion, submitCategory } = useAssessment();
+  const {
+    questions, answers, activeCategory, currentQuestionIndex, timeLeft,
+    selectAnswer, nextQuestion, submitCategory,
+    reportIntegrityEvent, shuffledOptions, lockedAnswers, lockAnswer,
+    integrityEvents,
+  } = useAssessment();
 
   const [showSubmitModal, setShowSubmitModal] = React.useState(false);
   const [isEarlySubmit, setIsEarlySubmit] = React.useState(false);
+  const [fullscreenWarning, setFullscreenWarning] = React.useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Fullscreen nudge ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeCategory) return;
+    // Request fullscreen when assessment starts
+    const el = document.documentElement;
+    if (el.requestFullscreen && !document.fullscreenElement) {
+      el.requestFullscreen().catch(() => {});
+    }
+
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setFullscreenWarning(true);
+        reportIntegrityEvent('fullscreen_exit');
+        setTimeout(() => setFullscreenWarning(false), 5000);
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [activeCategory]);
+
+  // ── Tab / window blur detection ────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeCategory) return;
+
+    const onVisibility = () => {
+      if (document.hidden) reportIntegrityEvent('tab_hidden');
+    };
+    const onBlur = () => reportIntegrityEvent('blur');
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [activeCategory]);
 
   if (!activeCategory) return null;
 
@@ -32,14 +76,66 @@ export const AssessmentInterface: React.FC = () => {
 
   const answeredInCat = activeQuestions.filter(q => answers[q.id] !== undefined).length;
   const progressPercent = Math.round((answeredInCat / activeQuestions.length) * 100);
-  const selectedOption = answers[currentQuestion.id];
+
+  // Use shuffled options if available; fall back to original
+  const optionData = shuffledOptions[currentQuestion.id];
+  const displayOptions = optionData?.options ?? currentQuestion.options;
+
+  // Find which displayed option corresponds to the stored original answer
+  const storedOriginalIdx = answers[currentQuestion.id];
+  const selectedDisplayIdx = storedOriginalIdx !== undefined && optionData
+    ? optionData.map.indexOf(storedOriginalIdx)
+    : storedOriginalIdx;
+
+  const isLocked = lockedAnswers.has(currentQuestion.id);
   const isLastQuestion = localIndex === activeQuestions.length - 1;
-  const hasAnswered = selectedOption !== undefined;
+  const hasAnswered = selectedDisplayIdx !== undefined;
 
   const letterOf = (i: number) => String.fromCharCode(65 + i);
 
+  // Focus events count for header badge
+  const focusLossCount = integrityEvents.filter(
+    e => e.type === 'blur' || e.type === 'tab_hidden'
+  ).length;
+
+  // ── Copy / paste / context-menu block ────────────────────────────────────
+  const blockCopy = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    reportIntegrityEvent('copy_attempt');
+  };
+
+  const handleNext = () => {
+    lockAnswer(currentQuestion.id);
+    nextQuestion();
+  };
+
+  const handleSubmit = () => {
+    lockAnswer(currentQuestion.id);
+    setIsEarlySubmit(false);
+    setShowSubmitModal(true);
+  };
+
+  const handleEarlySubmit = () => {
+    setIsEarlySubmit(true);
+    setShowSubmitModal(true);
+  };
+
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50">
+    <div ref={containerRef} className="flex flex-col min-h-screen bg-slate-50">
+
+      {/* Fullscreen exit warning */}
+      {fullscreenWarning && (
+        <div className="bg-amber-500 text-white text-xs font-medium px-4 py-2 flex items-center gap-2 justify-center">
+          <Maximize2 size={13} />
+          You exited full-screen. Please return to full-screen to continue your assessment.
+          <button
+            onClick={() => document.documentElement.requestFullscreen().catch(() => {})}
+            className="ml-2 underline underline-offset-2 cursor-pointer"
+          >
+            Re-enter
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 sm:px-10 py-5">
@@ -52,6 +148,14 @@ export const AssessmentInterface: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Focus loss indicator */}
+            {focusLossCount > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
+                <EyeOff size={12} />
+                {focusLossCount} focus {focusLossCount === 1 ? 'loss' : 'losses'}
+              </div>
+            )}
+
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-mono text-sm font-medium transition-all ${
               isTimeCritical ? 'text-rose-600 bg-rose-50 border-rose-200 animate-pulse' : 'text-slate-700 bg-slate-50 border-slate-200'
             }`}>
@@ -60,14 +164,12 @@ export const AssessmentInterface: React.FC = () => {
             </div>
 
             {isLastQuestion ? (
-              <button id="btn-header-submit-section"
-                onClick={() => { setIsEarlySubmit(false); setShowSubmitModal(true); }}
+              <button id="btn-header-submit-section" onClick={handleSubmit}
                 className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer">
                 Submit Section
               </button>
             ) : (
-              <button id="btn-header-submit-early"
-                onClick={() => { setIsEarlySubmit(true); setShowSubmitModal(true); }}
+              <button id="btn-header-submit-early" onClick={handleEarlySubmit}
                 className="px-4 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer">
                 Finish Early
               </button>
@@ -85,8 +187,14 @@ export const AssessmentInterface: React.FC = () => {
         </div>
       </header>
 
-      {/* Question card */}
-      <section className="flex-1 flex items-center justify-center p-4 sm:p-8">
+      {/* Question card — copy/paste/context-menu blocked */}
+      <section
+        className="flex-1 flex items-center justify-center p-4 sm:p-8"
+        onCopy={blockCopy}
+        onCut={blockCopy}
+        onContextMenu={blockCopy}
+        style={{ userSelect: 'none' }}
+      >
         <div className="w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm p-7 sm:p-10">
 
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
@@ -97,15 +205,23 @@ export const AssessmentInterface: React.FC = () => {
           </p>
 
           <div className="space-y-3">
-            {currentQuestion.options.map((option, idx) => {
-              const isSelected = selectedOption === idx;
+            {displayOptions.map((option, idx) => {
+              const isSelected = selectedDisplayIdx === idx;
+              // Lock: grey out other options once answered and moved on
+              const isDisabled = isLocked && !isSelected;
+
               return (
                 <button key={idx} id={`btn-option-${idx}`}
-                  onClick={() => selectAnswer(currentQuestion.id, idx)}
-                  className={`w-full text-left flex items-center gap-4 px-4 py-3.5 rounded-xl border-2 transition-all cursor-pointer group ${
-                    isSelected
-                      ? 'border-[#002366] bg-[#002366]/5'
-                      : 'border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50'
+                  onClick={() => !isLocked && selectAnswer(currentQuestion.id, idx)}
+                  disabled={isDisabled}
+                  className={`w-full text-left flex items-center gap-4 px-4 py-3.5 rounded-xl border-2 transition-all group ${
+                    isLocked && isSelected
+                      ? 'border-[#002366] bg-[#002366]/5 cursor-not-allowed opacity-90'
+                      : isDisabled
+                        ? 'border-slate-100 bg-slate-50 cursor-not-allowed opacity-40'
+                        : isSelected
+                          ? 'border-[#002366] bg-[#002366]/5 cursor-pointer'
+                          : 'border-slate-100 bg-white hover:border-slate-300 hover:bg-slate-50 cursor-pointer'
                   }`}>
                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
                     isSelected ? 'border-[#002366] bg-[#002366]' : 'border-slate-300 group-hover:border-slate-400'
@@ -128,10 +244,12 @@ export const AssessmentInterface: React.FC = () => {
         {!hasAnswered && (
           <p className="mr-auto text-xs text-slate-400 italic">Select an answer to continue</p>
         )}
+        {isLocked && (
+          <p className="mr-auto text-xs text-slate-400 italic">Answer locked — move to next question</p>
+        )}
 
         {isLastQuestion ? (
-          <button id="btn-submit-category-section"
-            onClick={() => { setIsEarlySubmit(false); setShowSubmitModal(true); }}
+          <button id="btn-submit-category-section" onClick={handleSubmit}
             disabled={!hasAnswered}
             className={`px-6 py-2.5 rounded-lg text-sm font-medium transition-all ${
               hasAnswered
@@ -141,7 +259,7 @@ export const AssessmentInterface: React.FC = () => {
             Submit Section
           </button>
         ) : (
-          <button id="btn-next-question" onClick={nextQuestion} disabled={!hasAnswered}
+          <button id="btn-next-question" onClick={handleNext} disabled={!hasAnswered}
             className={`px-8 py-2.5 rounded-lg text-sm font-medium transition-all ${
               hasAnswered
                 ? 'bg-[#002366] hover:bg-[#00308f] text-white cursor-pointer shadow-sm btn-primary'

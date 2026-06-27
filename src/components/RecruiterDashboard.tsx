@@ -18,6 +18,14 @@ import {
 type AssessmentStatus = 'Not Started' | 'In Progress' | 'Completed';
 type PipelineStatus = 'new' | 'under_review' | 'shortlisted' | 'rejected';
 
+interface IntegritySummary {
+  blurCount: number;
+  copyAttempts: number;
+  fullscreenExits: number;
+  speedFlags: Record<string, boolean>;
+  flagged: boolean;
+}
+
 interface CandidateProfile {
   uid: string;
   email: string;
@@ -31,6 +39,7 @@ interface CandidateProfile {
   recruiterNotes?: string;
   pipelineUpdatedAt?: string;
   positionName?: string;
+  integrity?: IntegritySummary;
 }
 
 interface CandidateResult {
@@ -793,10 +802,18 @@ export const RecruiterDashboard: React.FC = () => {
                           {new Date(c.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </td>
                         <td className="px-4 py-3.5 text-right">
-                          <button onClick={() => openDrawer(c.uid)}
-                            className="px-3 py-1.5 border border-slate-200 hover:border-[#002366] hover:bg-[#002366] hover:text-white text-slate-600 rounded-lg text-xs font-medium transition-all cursor-pointer">
-                            View
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {c.integrity?.flagged && (
+                              <span title="Integrity flag — open profile for details"
+                                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wide">
+                                ⚑ Flagged
+                              </span>
+                            )}
+                            <button onClick={() => openDrawer(c.uid)}
+                              className="px-3 py-1.5 border border-slate-200 hover:border-[#002366] hover:bg-[#002366] hover:text-white text-slate-600 rounded-lg text-xs font-medium transition-all cursor-pointer">
+                              View
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1229,6 +1246,34 @@ export const RecruiterDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* ── Integrity Report ── */}
+            {drawerCandidate.integrity && (
+              <div className="px-5 pb-4">
+                <div className={`rounded-xl border p-4 ${drawerCandidate.integrity.flagged ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <p className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5 ${drawerCandidate.integrity.flagged ? 'text-amber-700' : 'text-slate-500'}`}>
+                    {drawerCandidate.integrity.flagged ? '⚑ Integrity Flags Detected' : '✓ No Integrity Issues'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                    {[
+                      { label: 'Focus Losses', val: drawerCandidate.integrity.blurCount, warn: drawerCandidate.integrity.blurCount > 3 },
+                      { label: 'Copy Attempts', val: drawerCandidate.integrity.copyAttempts, warn: drawerCandidate.integrity.copyAttempts > 0 },
+                      { label: 'Fullscreen Exits', val: drawerCandidate.integrity.fullscreenExits, warn: false },
+                    ].map(({ label, val, warn }) => (
+                      <div key={label} className={`rounded-lg p-2 border ${warn ? 'bg-amber-100 border-amber-300' : 'bg-white border-slate-200'}`}>
+                        <p className={`text-lg font-bold font-mono ${warn ? 'text-amber-700' : 'text-slate-700'}`}>{val}</p>
+                        <p className="text-[10px] text-slate-500 leading-tight">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {Object.entries(drawerCandidate.integrity.speedFlags).some(([, v]) => v) && (
+                    <p className="text-[11px] text-amber-700 font-medium">
+                      Speed flag: {Object.entries(drawerCandidate.integrity.speedFlags).filter(([,v]) => v).map(([k]) => k).join(', ')} completed in under 3 minutes.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Drawer footer */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-between">

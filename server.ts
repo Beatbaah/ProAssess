@@ -167,7 +167,7 @@ app.get('/api/questions', async (req, res) => {
 // Securely calculate and submit assessment
 app.post('/api/submit-assessment', async (req, res) => {
   try {
-    const { userId, userEmail, userDisplayName, answers } = req.body;
+    const { userId, userEmail, userDisplayName, answers, integrityData } = req.body;
     
     if (!userId || !answers) {
       return res.status(400).json({ error: 'Missing userId or answers' });
@@ -247,6 +247,17 @@ Format as 3-4 professional sentences focusing on their strengths, cognitive agil
     const submittedAt = new Date().toISOString();
     const resultId = `${userId}_${Date.now()}`;
 
+    // Summarise integrity flags stored with result and surfaced in recruiter view
+    const integritySummary = integrityData ? {
+      blurCount:       integrityData.blurCount       ?? 0,
+      copyAttempts:    integrityData.copyAttempts    ?? 0,
+      fullscreenExits: integrityData.fullscreenExits ?? 0,
+      speedFlags:      integrityData.speedFlags      ?? {},
+      flagged: (integrityData.blurCount > 3) ||
+               (integrityData.copyAttempts > 0) ||
+               (Object.values(integrityData.speedFlags ?? {}).some(Boolean)),
+    } : null;
+
     const assessmentResult = {
       id: resultId,
       userId,
@@ -256,19 +267,21 @@ Format as 3-4 professional sentences focusing on their strengths, cognitive agil
       totalScore,
       categoryPercentages: percentages,
       submittedAt,
-      feedback
+      feedback,
+      ...(integritySummary && { integrity: integritySummary }),
     };
 
     // Save Result to Firestore securely via Client SDK (authorized as admin)
     const resultDocRef = doc(db, 'results', resultId);
     await setDoc(resultDocRef, assessmentResult);
 
-    // Update User Profile status to Completed via Client SDK (authorized as admin)
+    // Update User Profile — include integrity summary so recruiter pipeline can show badge
     const userDocRef = doc(db, 'users', userId);
     await setDoc(userDocRef, {
       status: 'Completed',
       lastSubmittedAt: submittedAt,
-      aggregateScore: totalScore
+      aggregateScore: totalScore,
+      ...(integritySummary && { integrity: integritySummary }),
     }, { merge: true });
 
     res.json({ success: true, result: assessmentResult });
