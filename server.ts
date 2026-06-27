@@ -21,6 +21,33 @@ app.use(express.json());
 
 const PORT = 3000;
 
+// Verify a Firebase ID token by calling the Firebase REST API.
+// Returns the uid if valid, null otherwise.
+async function verifyIdToken(idToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${config.apiKey}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken }) }
+    );
+    const data = await res.json() as any;
+    return data?.users?.[0]?.localId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Express middleware: checks Bearer token, attaches req.verifiedUid.
+async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  }
+  const uid = await verifyIdToken(header.slice(7));
+  if (!uid) return res.status(401).json({ error: 'Invalid or expired token' });
+  (req as any).verifiedUid = uid;
+  next();
+}
+
 // Initialize Firebase client on the server side
 const firebaseConfig = {
   apiKey: config.apiKey,
@@ -651,11 +678,12 @@ app.delete('/api/recruiter/positions/:id', async (req, res) => {
 
 // =================== COMPLIANCE / DATA MANAGEMENT ===================
 
-// Candidate exports their own data
-app.get('/api/candidate/export', async (req, res) => {
+// Candidate exports their own data — requires valid Firebase ID token matching the uid
+app.get('/api/candidate/export', requireAuth, async (req, res) => {
   try {
     const uid = req.query.uid as string;
     if (!uid) return res.status(400).json({ error: 'Missing uid' });
+    if ((req as any).verifiedUid !== uid) return res.status(403).json({ error: 'Token does not match requested uid' });
 
     const [userSnap, draftSnap, allResultsSnap] = await Promise.all([
       getDoc(doc(db, 'users', uid)),
@@ -684,11 +712,12 @@ app.get('/api/candidate/export', async (req, res) => {
   }
 });
 
-// Candidate deletes their own data
-app.delete('/api/candidate/:uid/data', async (req, res) => {
+// Candidate deletes their own data — requires valid Firebase ID token matching the uid
+app.delete('/api/candidate/:uid/data', requireAuth, async (req, res) => {
   try {
     const { uid } = req.params;
     if (!uid) return res.status(400).json({ error: 'Missing uid' });
+    if ((req as any).verifiedUid !== uid) return res.status(403).json({ error: 'Token does not match requested uid' });
 
     const allResultsSnap = await getDocs(collection(db, 'results'));
     const myResults = allResultsSnap.docs.filter(d => d.data().userId === uid);

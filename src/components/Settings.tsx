@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAssessment } from '../context/AssessmentContext';
+import { auth } from '../firebase';
 import { User, Phone, CheckCircle2, AlertCircle, Save, ShieldAlert, Download, Trash2, Loader2 } from 'lucide-react';
 
 export const Settings: React.FC = () => {
@@ -43,7 +44,10 @@ export const Settings: React.FC = () => {
     if (!user?.uid) return;
     setExportingData(true);
     try {
-      const res = await fetch(`/api/candidate/export?uid=${user.uid}`);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(`/api/candidate/export?uid=${user.uid}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = Object.assign(document.createElement('a'), {
@@ -65,7 +69,11 @@ export const Settings: React.FC = () => {
     if (!confirm('This will permanently delete your profile, all assessment results, and draft progress. This cannot be undone. Continue?')) return;
     setDeletingAccount(true);
     try {
-      await fetch(`/api/candidate/${user.uid}/data`, { method: 'DELETE' });
+      const token = await auth.currentUser?.getIdToken();
+      await fetch(`/api/candidate/${user.uid}/data`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       alert('Your data has been erased. You will now be signed out.');
       logout();
     } catch {
