@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import rateLimit from 'express-rate-limit';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, getDocs, doc, setDoc, writeBatch, limit, query, getDoc, deleteDoc } from 'firebase/firestore';
@@ -18,6 +19,33 @@ import { QUESTIONS_BANK } from './src/data/questions';
 
 const app = express();
 app.use(express.json());
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+// Broad limit on all API routes — prevents general scraping / probing
+const globalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+  skip: (req) => !req.path.startsWith('/api'),
+});
+app.use(globalApiLimiter);
+
+// Tight limit on assessment submission — one real candidate needs at most ~5 per session
+const submitLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Submission limit reached. Please wait before trying again.' },
+});
+
+// Invite sending — prevent spam campaigns
+const inviteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: { error: 'Invite sending limit reached. Please try again in an hour.' },
+});
 
 const PORT = 3000;
 
@@ -165,7 +193,7 @@ app.get('/api/questions', async (req, res) => {
 });
 
 // Securely calculate and submit assessment
-app.post('/api/submit-assessment', async (req, res) => {
+app.post('/api/submit-assessment', submitLimiter, async (req, res) => {
   try {
     const { userId, userEmail, userDisplayName, answers, integrityData } = req.body;
     
@@ -428,7 +456,7 @@ function buildInviteEmail(to: string, recruiterName: string, inviteUrl: string, 
 }
 
 // Send candidate invitations
-app.post('/api/recruiter/invite', async (req, res) => {
+app.post('/api/recruiter/invite', inviteLimiter, async (req, res) => {
   try {
     const { requesterId, emails, personalMessage, positionId, positionName } = req.body;
     if (!requesterId || !Array.isArray(emails) || emails.length === 0) {

@@ -181,9 +181,27 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const draftData = draftSnap.data();
             if (draftData.answers) setAnswers(draftData.answers);
             if (draftData.completedCategories) setCompletedCategories(draftData.completedCategories);
-            if (draftData.timeLeft) setTimeLeft(draftData.timeLeft);
             if (draftData.activeCategory) setActiveCategory(draftData.activeCategory);
             if (draftData.currentQuestionIndex !== undefined) setCurrentQuestionIndex(draftData.currentQuestionIndex);
+
+            // Recompute remaining time from the wall-clock start timestamp so a page
+            // refresh always resumes at the correct second rather than a stale saved value.
+            if (draftData.timeLeft) {
+              let restoredTime = { ...draftData.timeLeft };
+              if (draftData.activeCategory && draftData.categoryStartedAt) {
+                const elapsed = (Date.now() - new Date(draftData.categoryStartedAt).getTime()) / 1000;
+                restoredTime[draftData.activeCategory as Category] = Math.max(
+                  0,
+                  Math.round(SECONDS_PER_CATEGORY - elapsed)
+                );
+                // Restore categoryStartTimes so speed-flag calculation survives a refresh
+                setCategoryStartTimes(prev => ({
+                  ...prev,
+                  [draftData.activeCategory]: new Date(draftData.categoryStartedAt).getTime()
+                }));
+              }
+              setTimeLeft(restoredTime);
+            }
           }
         }
       } catch (err) {
@@ -204,7 +222,8 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     currCompleted: Category[],
     currTime: Record<Category, number>,
     currActive: Category | null,
-    currIndex: number
+    currIndex: number,
+    currCategoryStartedAt?: string | null
   ) => {
     if (!user || profile?.status === 'Completed') return;
     try {
@@ -216,6 +235,9 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         timeLeft: currTime,
         activeCategory: currActive,
         currentQuestionIndex: currIndex,
+        // Wall-clock start time for the active category — used to recompute
+        // the correct timeLeft on page refresh instead of restoring a stale value.
+        categoryStartedAt: currCategoryStartedAt ?? null,
         updatedAt: new Date().toISOString()
       }, { merge: true });
     } catch (err) {
@@ -245,9 +267,14 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             [activeCategory]: updatedTime
           };
 
-          // Periodically save progress draft (every 10 seconds)
-          if (updatedTime % 10 === 0) {
-            saveProgressDraft(answers, completedCategories, newTimeLeft, activeCategory, currentQuestionIndex);
+          // Periodically save progress draft (every 30 seconds).
+          // categoryStartedAt is already in Firestore from startCategory(); we pass it
+          // through so the periodic save doesn't accidentally overwrite it with null.
+          if (updatedTime % 30 === 0) {
+            const startedAt = categoryStartTimes[activeCategory]
+              ? new Date(categoryStartTimes[activeCategory]!).toISOString()
+              : null;
+            saveProgressDraft(answers, completedCategories, newTimeLeft, activeCategory, currentQuestionIndex, startedAt);
           }
 
           return newTimeLeft;
@@ -263,6 +290,7 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // 5. Actions
   const startCategory = (category: Category) => {
     if (completedCategories.includes(category)) return;
+    const startedAt = new Date().toISOString();
     setActiveCategory(category);
     setCategoryStartTimes(prev => ({ ...prev, [category]: Date.now() }));
 
@@ -272,7 +300,7 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (profile && profile.status === 'Not Started') {
       setDoc(doc(db, 'users', user!.uid), { status: 'In Progress', currentCategory: category }, { merge: true });
     }
-    saveProgressDraft(answers, completedCategories, timeLeft, category, globalIndex >= 0 ? globalIndex : 0);
+    saveProgressDraft(answers, completedCategories, timeLeft, category, globalIndex >= 0 ? globalIndex : 0, startedAt);
   };
 
   // displayedOptionIndex is the index in the shuffled options array;
@@ -327,8 +355,8 @@ export const AssessmentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setActiveCategory(null);
     setCurrentQuestionIndex(0);
 
-    // Persist draft immediately
-    saveProgressDraft(answers, updatedCompleted, timeLeft, null, 0);
+    // Persist draft immediately; clear categoryStartedAt since this section is done
+    saveProgressDraft(answers, updatedCompleted, timeLeft, null, 0, null);
 
     // Sync with main user status
     if (user) {
