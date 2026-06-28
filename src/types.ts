@@ -38,14 +38,28 @@ export interface AssessmentState {
   startedAt: Record<Category, string | null>;
 }
 
+export interface QuestionBreakdownItem {
+  id: string;
+  category: Category;
+  isCorrect: boolean;
+}
+
 export interface AssessmentResult {
   id: string;
   userId: string;
   userEmail: string;
   userDisplayName: string;
-  scores: Record<Category, number>; // score out of 25 for each
-  totalScore: number; // aggregate score out of 100
+  scores: Record<Category, number>;
+  totalScore: number;
   submittedAt: string;
   categoryPercentages: Record<Category, number>;
-  feedback: string; // Professional summary feedback on strengths
+  feedback: string;
+  questionBreakdown?: QuestionBreakdownItem[];
+  integrity?: {
+    blurCount: number;
+    copyAttempts: number;
+    fullscreenExits: number;
+    speedFlags: Partial<Record<Category, boolean>>;
+    flagged: boolean;
+  };
 }

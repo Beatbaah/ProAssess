@@ -286,6 +286,13 @@ Format as 3-4 professional sentences focusing on their strengths, cognitive agil
                (Object.values(integrityData.speedFlags ?? {}).some(Boolean)),
     } : null;
 
+    // Per-question correctness breakdown (question text not included — client joins via questions array)
+    const questionBreakdown = QUESTIONS_BANK.map(q => ({
+      id: q.id,
+      category: q.category,
+      isCorrect: answers[q.id] === q.correctAnswerIndex,
+    }));
+
     const assessmentResult = {
       id: resultId,
       userId,
@@ -296,6 +303,7 @@ Format as 3-4 professional sentences focusing on their strengths, cognitive agil
       categoryPercentages: percentages,
       submittedAt,
       feedback,
+      questionBreakdown,
       ...(integritySummary && { integrity: integritySummary }),
     };
 
@@ -311,6 +319,28 @@ Format as 3-4 professional sentences focusing on their strengths, cognitive agil
       aggregateScore: totalScore,
       ...(integritySummary && { integrity: integritySummary }),
     }, { merge: true });
+
+    // Notify the recruiter who invited this candidate (fire-and-forget)
+    try {
+      const candidateProfile = (await getDoc(doc(db, 'users', userId))).data();
+      const recruiterUid = candidateProfile?.invitedBy;
+      if (recruiterUid) {
+        const recruiterProfile = (await getDoc(doc(db, 'users', recruiterUid))).data();
+        const recruiterEmail = recruiterProfile?.email;
+        const mailer = getMailer();
+        if (recruiterEmail && mailer) {
+          const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+          await mailer.sendMail({
+            from,
+            to: recruiterEmail,
+            subject: `${userDisplayName || 'A candidate'} has completed their ProAssess evaluation`,
+            html: buildCompletionEmail(userDisplayName || 'A candidate', totalScore, percentages, recruiterProfile?.displayName || 'Recruiter'),
+          });
+        }
+      }
+    } catch (notifyErr: any) {
+      console.warn('Recruiter completion notification failed:', notifyErr.message);
+    }
 
     res.json({ success: true, result: assessmentResult });
   } catch (error: any) {
@@ -455,6 +485,51 @@ function buildInviteEmail(to: string, recruiterName: string, inviteUrl: string, 
   return { to, subject: `${recruiterName} has invited you to complete a ProAssess assessment`, html };
 }
 
+function buildCompletionEmail(candidateName: string, totalScore: number, percentages: Record<string, number>, recruiterName: string) {
+  const rows = Object.entries(percentages).map(([cat, pct]) => `
+    <tr>
+      <td style="padding:9px 18px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#0f172a;font-weight:600">${cat}</td>
+      <td style="padding:9px 18px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#64748b">${pct}%</td>
+    </tr>`).join('');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Inter',Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 16px">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden">
+        <tr><td style="background:#002366;padding:28px 36px">
+          <table cellpadding="0" cellspacing="0"><tr>
+            <td style="width:32px;height:32px;background:#ffffff;border-radius:8px;text-align:center;vertical-align:middle">
+              <span style="color:#002366;font-size:16px;font-weight:700;line-height:32px">P</span>
+            </td>
+            <td style="padding-left:10px;color:#ffffff;font-size:16px;font-weight:600">ProAssess</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:36px 36px 24px">
+          <p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:0.08em;text-transform:uppercase">Assessment Complete</p>
+          <h1 style="margin:0 0 16px;font-size:22px;font-weight:600;color:#0f172a;line-height:1.3">
+            ${candidateName} has completed their evaluation
+          </h1>
+          <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.6">
+            Hi ${recruiterName}, your candidate scored <strong style="color:#0f172a">${totalScore}/100</strong> on the ProAssess cognitive assessment. Log in to view their full profile and integrity report.
+          </p>
+          <table cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;width:100%;margin-bottom:28px">
+            <tr><td style="padding:12px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc">
+              <span style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em">Score Breakdown</span>
+            </td></tr>
+            ${rows}
+          </table>
+        </td></tr>
+        <tr><td style="padding:0 36px 32px">
+          <p style="margin:16px 0 0;font-size:12px;color:#94a3b8">This is an automated notification from ProAssess.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
 // Send candidate invitations
 app.post('/api/recruiter/invite', inviteLimiter, async (req, res) => {
   try {
@@ -557,14 +632,25 @@ app.patch('/api/invite/:token/accept', async (req, res) => {
     const now = new Date().toISOString();
 
     const inviteDoc = await getDoc(doc(db, 'invitations', token));
+    if (!inviteDoc.exists()) return res.status(404).json({ error: 'Invitation not found' });
+
+    const inviteData = inviteDoc.data();
+    if (new Date(inviteData.expiresAt) < new Date()) {
+      return res.status(410).json({ error: 'Invitation has expired' });
+    }
+
     await setDoc(doc(db, 'invitations', token), { status: 'registered', acceptedAt: now }, { merge: true });
 
-    // Write positionName to the user's profile if available
-    if (uid && inviteDoc.exists()) {
-      const positionName = inviteDoc.data().positionName;
-      const positionId   = inviteDoc.data().positionId;
-      if (positionName) {
-        await setDoc(doc(db, 'users', uid), { positionName, positionId: positionId || null }, { merge: true });
+    // Write invite metadata to the user's profile for pipeline linkage and completion notifications
+    if (uid) {
+      const profileUpdate: Record<string, any> = {};
+      if (inviteData.positionName) {
+        profileUpdate.positionName = inviteData.positionName;
+        profileUpdate.positionId = inviteData.positionId || null;
+      }
+      if (inviteData.invitedBy) profileUpdate.invitedBy = inviteData.invitedBy;
+      if (Object.keys(profileUpdate).length > 0) {
+        await setDoc(doc(db, 'users', uid), profileUpdate, { merge: true });
       }
     }
 

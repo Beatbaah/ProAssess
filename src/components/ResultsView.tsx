@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAssessment } from '../context/AssessmentContext';
 import { useAuth } from '../context/AuthContext';
-import { Award, BookOpen, AlertCircle, Calendar, CheckCircle2, User, TrendingUp } from 'lucide-react';
+import { Award, BookOpen, AlertCircle, Calendar, CheckCircle2, User, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 
 const scoreBand = (score: number) => {
   if (score >= 80) return { label: 'Distinguished', color: 'bg-emerald-50 text-emerald-800 border-emerald-200' };
@@ -15,7 +15,8 @@ const barColor = (pct: number) =>
 
 export const ResultsView: React.FC = () => {
   const { profile } = useAuth();
-  const { result, loading, resetAssessment } = useAssessment();
+  const { result, loading, resetAssessment, questions } = useAssessment();
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -139,6 +140,55 @@ export const ResultsView: React.FC = () => {
           This profile is compiled using secure, multi-dimensional scoring and reviewed as supplementary guidance alongside live interviews and portfolio achievements.
         </p>
       </div>
+
+      {/* Per-question breakdown */}
+      {result.questionBreakdown && result.questionBreakdown.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-[#002366]" />
+            <h3 className="text-sm font-semibold text-slate-900">Question-by-Question Breakdown</h3>
+          </div>
+          {(['Numerical', 'Verbal', 'Logical', 'Spatial'] as const).map(cat => {
+            const catItems = result.questionBreakdown!.filter(q => q.category === cat);
+            const correct = catItems.filter(q => q.isCorrect).length;
+            const isOpen = expandedCategory === cat;
+            return (
+              <div key={cat} className="border-b border-slate-100 last:border-b-0">
+                <button
+                  onClick={() => setExpandedCategory(isOpen ? null : cat)}
+                  className="w-full flex items-center justify-between px-6 py-3.5 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-slate-800">{cat} Reasoning</span>
+                    <span className="text-xs text-slate-500 font-mono">{correct}/{catItems.length} correct</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${barColor(Math.round(correct / catItems.length * 100))}`}
+                        style={{ width: `${Math.round(correct / catItems.length * 100)}%` }} />
+                    </div>
+                    {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="px-6 pb-4 grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+                    {catItems.map((q, i) => (
+                      <div key={q.id} title={`Q${i + 1}: ${q.isCorrect ? 'Correct' : 'Incorrect'}`}
+                        className={`h-7 rounded-md flex items-center justify-center text-[10px] font-semibold border ${
+                          q.isCorrect
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : 'bg-rose-50 border-rose-200 text-rose-600'
+                        }`}>
+                        {i + 1}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex justify-end gap-3">

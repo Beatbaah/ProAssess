@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../firebase';
 import { Mail, Lock, User as UserIcon, Phone, AlertCircle, ShieldCheck, PartyPopper } from 'lucide-react';
@@ -15,6 +16,7 @@ export const AuthScreens: React.FC = () => {
 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   // Invite token state
   const [inviteToken, setInviteToken]           = useState<string | null>(null);
@@ -47,10 +49,29 @@ export const AuthScreens: React.FC = () => {
   }, []);
 
   const toggleMode = () => {
-    if (inviteToken) return; // lock mode when invited
+    if (inviteToken) return;
     setIsLogin(prev => !prev);
     setValidationError(null);
+    setResetSent(false);
     clearError();
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setValidationError('Enter your email address above, then click "Forgot password".');
+      return;
+    }
+    setValidationError(null);
+    clearError();
+    setIsSubmitting(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setResetSent(true);
+    } catch {
+      setValidationError('Could not send reset email. Check the address and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDemoLogin = async (targetRole: 'candidate' | 'recruiter' = 'candidate') => {
@@ -279,7 +300,15 @@ export const AuthScreens: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 uppercase tracking-wide mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-slate-600 uppercase tracking-wide">Password</label>
+                {isLogin && !inviteToken && (
+                  <button type="button" onClick={handleForgotPassword}
+                    className="text-xs text-[#002366] hover:underline cursor-pointer">
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input type="password" id="input-auth-password" value={password}
@@ -287,6 +316,13 @@ export const AuthScreens: React.FC = () => {
                   className={inputClass} placeholder="••••••••" />
               </div>
             </div>
+
+            {resetSent && (
+              <div className="flex items-start gap-2.5 p-3.5 bg-emerald-50 border border-emerald-100 rounded-lg text-xs text-emerald-700 leading-relaxed">
+                <ShieldCheck size={15} className="shrink-0 mt-0.5" />
+                <span>Password reset email sent. Check your inbox and follow the link to set a new password.</span>
+              </div>
+            )}
 
             {(validationError || error) && (
               <div className="flex items-start gap-2.5 p-3.5 bg-rose-50 border border-rose-100 rounded-lg text-xs text-rose-700 leading-relaxed">

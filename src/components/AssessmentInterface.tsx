@@ -138,39 +138,40 @@ export const AssessmentInterface: React.FC = () => {
       )}
 
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 sm:px-10 py-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-md text-xs font-medium uppercase tracking-wide">
-              {activeCategory} Reasoning
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-10 py-4 sm:py-5">
+        <div className="flex items-center justify-between gap-3 mb-3 sm:mb-4 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <span className="shrink-0 px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md text-[11px] font-medium uppercase tracking-wide">
+              {activeCategory}
             </span>
-            <h1 className="text-base font-semibold text-slate-800">Candidate Proficiency Test</h1>
+            <h1 className="text-sm sm:text-base font-semibold text-slate-800 truncate">Candidate Proficiency Test</h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* Focus loss indicator */}
             {focusLossCount > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
-                <EyeOff size={12} />
-                {focusLossCount} focus {focusLossCount === 1 ? 'loss' : 'losses'}
+              <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium">
+                <EyeOff size={11} />
+                <span className="hidden sm:inline">{focusLossCount} focus {focusLossCount === 1 ? 'loss' : 'losses'}</span>
+                <span className="sm:hidden">{focusLossCount}</span>
               </div>
             )}
 
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-mono text-sm font-medium transition-all ${
+            <div className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border font-mono text-sm font-medium transition-all ${
               isTimeCritical ? 'text-rose-600 bg-rose-50 border-rose-200 animate-pulse' : 'text-slate-700 bg-slate-50 border-slate-200'
             }`}>
-              <Clock size={14} className={isTimeCritical ? 'text-rose-500' : 'text-slate-400'} />
+              <Clock size={13} className={isTimeCritical ? 'text-rose-500' : 'text-slate-400'} />
               {formattedTime}
             </div>
 
             {isLastQuestion ? (
               <button id="btn-header-submit-section" onClick={handleSubmit}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer">
-                Submit Section
+                className="px-3 sm:px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap">
+                Submit
               </button>
             ) : (
               <button id="btn-header-submit-early" onClick={handleEarlySubmit}
-                className="px-4 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer">
+                className="hidden sm:block px-4 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer">
                 Finish Early
               </button>
             )}

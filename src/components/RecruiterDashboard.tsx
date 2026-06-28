@@ -427,7 +427,9 @@ export const RecruiterDashboard: React.FC = () => {
   const handleExportCSV = () => {
     const headers = ['Name','Email','Phone','Assessment Status','Pipeline Stage','Score (/100)',
       'Numerical (/25)','Verbal (/25)','Logical (/25)','Spatial (/25)',
-      'Registered','Completed','Recruiter Notes','AI Summary'];
+      'Registered','Completed','Recruiter Notes',
+      'Integrity Flagged','Focus Losses','Copy Attempts','Fullscreen Exits',
+      'AI Summary'];
     const rows = filteredCandidates.map(c => {
       const r = results.find(x => x.userId === c.uid);
       return [
@@ -441,6 +443,10 @@ export const RecruiterDashboard: React.FC = () => {
         new Date(c.createdAt).toLocaleDateString(),
         c.lastSubmittedAt ? new Date(c.lastSubmittedAt).toLocaleDateString() : 'N/A',
         c.recruiterNotes || '',
+        c.integrity?.flagged ? 'Yes' : 'No',
+        c.integrity?.blurCount ?? 'N/A',
+        c.integrity?.copyAttempts ?? 'N/A',
+        c.integrity?.fullscreenExits ?? 'N/A',
         r?.feedback ? r.feedback.replace(/"/g, '""').replace(/\r?\n|\r/g, ' ') : 'N/A',
       ];
     });

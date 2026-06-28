@@ -35,7 +35,6 @@ const MainAppContent: React.FC = () => {
   }, [user?.uid]);
 
   // Auto-redirect recruiters away from the candidate dashboard
-  // Runs when role loads AND whenever activeTab changes (so sidebar clicks are also caught)
   useEffect(() => {
     if (profile?.role === 'recruiter' && activeTab === 'dashboard') {
       setActiveTab('recruiter');
@@ -43,6 +42,17 @@ const MainAppContent: React.FC = () => {
       setActiveTab('dashboard');
     }
   }, [profile?.role, activeTab]);
+
+  // Update browser tab title per active view
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      dashboard: 'Dashboard — ProAssess',
+      settings: 'My Profile — ProAssess',
+      results: 'My Results — ProAssess',
+      recruiter: 'Candidate Pipeline — ProAssess',
+    };
+    document.title = titles[activeTab] ?? 'ProAssess';
+  }, [activeTab]);
 
   // Show a professional slate loading skeleton during auth or database loads
   if (authLoading || assessmentLoading) {
